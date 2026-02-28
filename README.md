@@ -1,130 +1,159 @@
-# ARCHIPEL - Protocole P2P decentralise et chiffre
+# Archipel
 
-## 1. Contexte et mission
-Archipel est un protocole de communication Peer-to-Peer (P2P) concu pour fonctionner sans Internet, sans serveur central et sans autorite de certification. Le but est de survivre a une coupure totale d'infrastructure en creant un reseau local souverain ou chaque noeud est a la fois client et serveur.
+Prototype P2P local, chiffre, sans serveur central.
 
-Contrainte absolue: zero connexion Internet pendant la demo (hors module Gemini, isolable et desactivable).
+## Etat du depot (constate localement)
 
-## 2. Choix technologiques (Sprint 0)
+Ce repository contient:
 
-### Langage principal: Python 3.10+
-- Rapidite de prototypage pour tenir les sprints du hackathon.
-- `asyncio` pour gerer decouverte UDP, TCP, et CLI sans blocage.
-- Ecosysteme crypto mature (`PyNaCl`, et extension possible `PyCryptodome`).
+- un transport TCP chiffre avec handshake (`HELLO -> HELLO_REPLY -> AUTH -> AUTH_OK`)
+- une decouverte de pairs en UDP multicast (`239.255.42.99:6000`)
+- un transfert de fichiers en chunks (`512 KB`) avec manifest + ACK
+- un stockage local des chunks dans `.archipel/`
+- une CLI de demo dans `src/cli/main.py`
+- un utilitaire Sprint 0 dans `sprintO.py`
 
-### Transport reseau retenu
-- Decouverte de pairs: UDP Multicast (`239.255.42.99:6000`).
-- Transfert de donnees: TCP sockets (port par defaut `7777`).
-- Justification: stack simple, eprouvee, et adaptee au delai de 24h.
+Fonctionnalites encore en placeholder:
 
-### Segmentation (chunking)
-- Taille de chunk cible: `512 KB`.
-- Objectif: transfert robuste, verification d'integrite par bloc, reprise en cas de panne pair.
+- `download` dans la CLI principale
+- `status` dans la CLI principale
+- `src/messaging/service.py`
+- `demo/run-demo.ps1` (TODO)
 
-## 3. Specification paquet Archipel v1
-Format binaire de base:
+## Arborescence utile
 
-| Champ | Taille | Description |
-| :--- | :--- | :--- |
-| `MAGIC` | 4 octets | Signature protocole (`ARCH`) |
-| `TYPE` | 1 octet | Type de paquet |
-| `NODE_ID` | 32 octets | Cle publique Ed25519 (identifiant noeud) |
-| `PAYLOAD_LEN` | 4 octets | Longueur payload (`uint32` Big Endian) |
-| `PAYLOAD` | Variable | Donnees (chiffrees en sprint 2) |
-| `HMAC-SHA256` | 32 octets | Integrite du paquet |
-
-Types de paquets:
-- `0x01 HELLO`
-- `0x02 PEER_LIST`
-- `0x03 MSG`
-- `0x04 CHUNK_REQ`
-- `0x05 CHUNK_DATA`
-- `0x06 MANIFEST`
-- `0x07 ACK`
-
-## 4. Securite et cryptographie
-- Identite noeud: paire Ed25519 (generee localement).
-- E2E cible: X25519 (ECDH) + AES-256-GCM (Sprint 2).
-- Integrite paquet: HMAC-SHA256.
-- Authentification sans CA: TOFU / Web of Trust.
-- Regles anti-pattern:
-- pas de cle privee en dur dans le code ou le repo
-- pas d'algorithme crypto maison
-- pas de reutilisation de nonce avec la meme cle
-
-## 5. Schema architecture (Sprint 0)
-```text
-+-----------------------+            +-----------------------+
-| Node A                |            | Node B                |
-| - UDP discovery       |<---------->| - UDP discovery       |
-| - TCP server/client   |            | - TCP server/client   |
-| - Crypto identity     |            | - Crypto identity     |
-+-----------------------+            +-----------------------+
-            \                               /
-             \-----------+-----------------/
-                         |
-                +-----------------------+
-                | Node C                |
-                | - Peer table          |
-                | - Chunk storage       |
-                +-----------------------+
-```
-
-## 6. Etat actuel du repository
-Structure actuelle:
 ```text
 src/
-|-- crypto/      # PKI (Ed25519), derivation de session
-|-- network/     # constants, packet, peer table
-|-- transfer/    # chunking, manifest
-|-- messaging/   # service messaging (placeholder)
-`-- cli/         # CLI de demo
+  cli/main.py
+  crypto/{keys.py,session.py,trust_store.py}
+  network/{constants.py,packet.py,discovery.py,tcp_server.py,tcp_client.py,wifi_direct.py,peer_table_sprint1.py}
+  transfer/{chunking.py,manifest.py,chunk_store.py}
 docs/
-|-- protocol-spec.md
-`-- architecture.md
+  architecture.md
+  protocol-spec.md
 tests/
-demo/
+  test_peer_table.py
+  test_placeholder.py
+  test_e2e_sprint2.py
+sprintO.py
+pyproject.toml
 ```
 
-## 7. Commandes utiles
-Generation des cles:
+## Prerequis
+
+- Python `>= 3.10`
+- Windows (le module `wifi_direct.py` est oriente PowerShell/Windows)
+
+Dependances Python utilisees par le code:
+
+- `pynacl`
+- `pycryptodome` (module `Crypto.Cipher.AES`)
+- `cryptography` (utilise par `sprintO.py`)
+- `pytest` (pour les tests)
+
+`pyproject.toml` ne declare actuellement que `pynacl`, donc il faut installer le reste manuellement.
+
+## Installation rapide
+
 ```bash
-python sprintO.py keygen --node node-1 --out keys
-# ou via variable d'environnement:
-# $env:ARCHIPEL_KEY_PASSWORD="MotDePasseFort123!"
-# python sprintO.py keygen --node node-1 --out keys --password-env ARCHIPEL_KEY_PASSWORD
+python -m venv venv
+venv\Scripts\activate
+pip install -e .
+pip install pycryptodome cryptography pytest
 ```
 
-Aide CLI:
-```bash
-python -m src.cli.main --help
-```
+## Commandes principales
 
-Exemples de commandes CLI:
+Generer les cles Ed25519 pour la CLI principale:
+
 ```bash
-python -m src.cli.main start --port 7777
-python -m src.cli.main peers
-python -m src.cli.main msg <node_id> "Hello"
-python -m src.cli.main send <node_id> <filepath>
-python -m src.cli.main receive
-python -m src.cli.main download <file_id>
-python -m src.cli.main status
-python -m src.cli.main trust <node_id>
 python -m src.cli.main keygen
 ```
 
-## 8. Checklist Sprint 0
-- [x] Choix du langage et justification documentes
-- [x] Choix transport local documente (UDP multicast + TCP)
-- [x] Format de paquet defini (header + payload + HMAC)
-- [x] Schema architecture ajoute dans le README
-- [x] Generation de cles Ed25519 operationnelle (`keygen.py`)
-- [ ] Repository Git initialise et workflow applique (`main`, `develop`, `feature/*`)
-- [ ] Premier commit tague `sprint-0`
-- [ ] Tous les membres connectes au meme repo (organisation equipe)
+Demarrer un noeud TCP:
 
-## 9. Roadmap des sprints suivants
-- Sprint 1: decouverte UDP reelle + peer table live + serveur TCP.
-- Sprint 2: handshake, chiffrement E2E, authentification TOFU.
-- Sprint 3: manifest, chunking, telechargement parallele multi-noeuds.
-- Sprint 4: integration CLI de demo complete + README final jury.
+```bash
+python -m src.cli.main start --port 7777
+```
+
+Lister les pairs connus (`.archipel/peers.json`):
+
+```bash
+python -m src.cli.main peers
+```
+
+Envoyer un message chiffre:
+
+```bash
+python -m src.cli.main msg <node_id_hex> "Bonjour" --ip <ip_peer> --port 7777
+```
+
+Envoyer un fichier (manifest + chunks):
+
+```bash
+python -m src.cli.main send <chemin_fichier> --ip <ip_peer> --port 7777
+```
+
+Lister les fichiers recus (chunk store):
+
+```bash
+python -m src.cli.main receive
+```
+
+Marquer un pair comme trusted (TOFU):
+
+```bash
+python -m src.cli.main trust <node_id_hex>
+```
+
+Gestion reseau "ile" locale (Wi-Fi Direct / hotspot):
+
+```bash
+python -m src.cli.main network create-island
+python -m src.cli.main network status
+```
+
+## Service de decouverte UDP (separe)
+
+La commande `start` n'active pas automatiquement la decouverte multicast.
+Pour lancer la discovery:
+
+```bash
+python -m src.network.discovery --node-id-file keys/ed25519_public.key --tcp-port 7777
+```
+
+## Utilitaire Sprint 0 (`sprintO.py`)
+
+```bash
+python sprintO.py --help
+python sprintO.py keygen --node node-1 --out keys
+python sprintO.py packet-demo --node-id-file keys/node-1_node_id.bin
+python sprintO.py report --node node-1 --keys-dir keys
+```
+
+## Tests
+
+Tests unitaires:
+
+```bash
+pytest -q tests/test_peer_table.py tests/test_placeholder.py
+```
+
+Script e2e local (non pytest):
+
+```bash
+python tests/test_e2e_sprint2.py
+```
+
+## Fichiers de donnees et runtime
+
+- `.archipel/peers.json`: table des pairs
+- `.archipel/trust_store.json`: statut trust TOFU
+- `.archipel/chunks/`: chunks recus + manifests
+- `downloads/`: fichiers reassembles
+- `keys/`, `keys_a/`, `keys_b/`: cles de test
+
+## Notes
+
+- `combinee.pdf` et `test_50mb.bin` sont presents a la racine pour les essais de transfert.
+- Date de mise a jour du README: 2026-02-28.
